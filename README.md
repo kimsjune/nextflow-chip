@@ -1,4 +1,9 @@
 ## Introduction
+The goal of this branch is to analyze a full Drosophila ChIP-seq data set from top to bottom using the main branch code.  
+
+
+
+
 A Nextflow pipeline that demonstrates H3K27me3 ChIP-seq data analysis. 
 Roughly speaking, the process is to:  
 1. (Optional) Build a bowtie2 index. Or use pre-generated ones.
