@@ -1,0 +1,9 @@
+name: macs2
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10
+  - macs2=2.2.7.1 # Unless specified, the default version from conda has a bug that can't call peaks when biological replicates are pooled. 
+

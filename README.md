@@ -1,10 +1,10 @@
 ## Introduction
 A Nextflow pipeline that demonstrates H3K27me3 ChIP-seq data analysis. 
 Roughly speaking, the process is to:  
-1. Build a bowtie2 index
-2. Align paired-end reads to the index
-3. Filter out concordantly mapped reads with samtools, then sort and index
-4. Identify broad peaks with MACS2
+1. (Optional) Build a bowtie2 index. Or use pre-generated ones.
+2. Align paired-end reads to the index.
+3. Filter out concordantly mapped reads with samtools, then sort and index.
+4. Identify broad peaks with MACS2.
 5. Filter against blacklist.  
 
 
@@ -24,10 +24,12 @@ Second branch:
 1. Intersect peaks with each RepeatMasker repClass.
 2. Compute matrix for each repClass for all libraries of a sample except inputs.
 3. Plot a profile.  
+
 ## To-do's and improvements
  - [ ] <sup>*</sup> for ChIP samples, `--scaleFactor` should be calcualted using `csaw` R package.
- - [ ] Finish writing deeptools process and update workflow.
+ - [x] Finish writing deeptools process and update workflow.
  - [ ] Include a new process that can generate RepeatMasker bed files, divided by repClass.
- - [ ] Mermaid markdown and plot.
- - [ ] Change hard-coded variables into parameters whenever appropriate.
- - [ ] Test out pipeline with a small genome or subsampled reads.
+ - [x] Mermaid markdown.
+ - [x] Change hard-coded variables into parameters whenever appropriate.
+ - [x] Test out pipeline with a small genome or subsampled reads.
+ - [ ] Separate main.nf into various modules.

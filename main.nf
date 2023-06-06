@@ -9,7 +9,7 @@ params.macsPeak = 'broad'
 params.blacklist = "$projectDir/bed/mm10-blacklist.v2.bed"
 params.genomeSize = 265283500
 params.normMeth = 'RPGC'
-params.repClass = "$projectDir/bed/mm10_rmsk_*_sorted.bed" 
+params.repClass = "$projectDir/bed/mm10_rmsk_DNA_LowComplexity_Satellite_SimpleRepeat_sorted.bed" 
 params.window = 1000
 params.binSize = 38
 params.heatmapCol = 'inferno'
@@ -17,7 +17,6 @@ params.heatmapCol = 'inferno'
 //params.sampleChIP = "$projectDir/reads/*_{R1,R2}.fastq.gz"
 
 
-fasta_ch = channel.fromFilePairs(params.fasta, size:1)
 sample_ch = channel.fromFilePairs(params.sample, size:2)
 repClass_ch = channel.fromFilePairs(params.repClass, size:1)
 index_ch = channel.fromFilePairs(params.index, size:6)
@@ -155,7 +154,7 @@ process BEDTOOLS_RM_BLK{
 
 
 process BEDTOOLS_INTERSECT {
-    //publishDir "$projectDir/bed", mode: "copy"
+    publishDir "$projectDir/bed", mode: "copy"
     input:
         tuple val(sample), path(broadPeak), val(repClass), path(bed) // only DMSO broadPeaks are used as inputs
         // need to combine these channels into one to get the Cartesian product of DMSO broadpeaks * repClass.bed files.
@@ -164,15 +163,46 @@ process BEDTOOLS_INTERSECT {
         //https://github.com/nextflow-io/nextflow/issues/59
     script: // outputs DMSO peaks intersecting with repClass. Writes peaks.
     """
-    bedtools intersect -b $bed  -a $broadPeak -u > ${sample}_${repClass}.bed
+    bedtools intersect -wa -a $broadPeak -b $bed -u > ${sample}_${repClass}.bed
+    """
+}
+
+process COMPMATRIX_ALL_PEAKS {
+    input:
+        tuple  val(region), path(broadPeak),val(sample), path(bw)
+        
+    output:
+        tuple val(sample), path("*.npy.gz")
+    script:
+/*     bw input is sorted alphabetically. The order of bw input is the following: 
+    ChIP DMSO rep1, input DMSO rep1,
+    ChIP DMSO rep2, input DMSO rep2,
+    ChIP GSK rep1, input GSK rep1
+    ChIP GSK rep2, input GSK rep2
+    There is no easy way of re-ordering this as I want from the workflow definition. Instead I am writing in the script here the order I want. */
+    """
+    computeMatrix scale-regions -R $broadPeak --sortRegions descend -p $task.cpus -S ${bw[1]} ${bw[3]} ${bw[5]} ${bw[7]} ${bw[0]} ${bw[2]} ${bw[4]} ${bw[6]} -o ${sample}.npy.gz --missingDataAsZero --skipZeros -b $params.window -a $params.window
+    """
+}
+
+process HEATMAP_ALL_PEAKS{
+    publishDir "$projectDir/svg", mode:"copy"
+    input:
+        tuple val(sample), path(matrix)
+
+    output:
+        tuple val(sample), path("*.svg")
+    script:
+    """
+    plotHeatmap -z "" -m $matrix -o ${sample}.svg --colorMap $params.heatmapCol --heatmapHeight 14 --heatmapWidth 2 --startLabel "" --endLabel ""
     """
 }
 
 process  COMPMATRIX_PEAKSatRMSK {
     
     input:
-        tuple val(genotype_repClass), path(repClassBed)
-        tuple val(genotype), path(bw) // only ChIP samples are used as inputs
+        tuple val(genotype_repClass), path(repClassBed), val(genotype), path(bw)
+         // only ChIP samples are used as inputs
                                       // Control Rep1, Rep2, Treatment Rep1, Rep2
     output:
         tuple val(genotype_repClass), path("*.npy.gz")
@@ -185,7 +215,7 @@ process  COMPMATRIX_PEAKSatRMSK {
 }
 
 process PROFILE_PEAKSatRMSK {
-
+    publishDir "$projectDir/svg", mode:"copy"
     input:
         tuple val(prefix), path(matrix)
 
@@ -201,45 +231,16 @@ process PROFILE_PEAKSatRMSK {
 
 
 
-
-process COMPMATRIX_ALL_PEAKS {
-    input:
-        tuple  val(region), path(broadPeak),val(sample), path(bw)
-        
-    output:
-        tuple val(sample), path("*.npy.gz")
-    script:
-/*     bw input is sorted alphabetically. The order of bw input is the following: 
-    ChIP GSK rep1, ChIP GSK rep2,
-    ChIP DMSO rep1, ChIP DMSO rep2,
-    input GSK rep2, input GSK rep2,
-    input DMSO rep1, input DMSO rep2
-    There is no easy way of re-ordering this as I want from the workflow definition. Instead I am writing in the script here the order I want. */
-    """
-    computeMatrix scale-regions -R $broadPeak --sortRegions descend -p $task.cpus -S ${bw[4]} ${bw[5]} ${bw[6]} ${bw[7]} ${bw[0]} ${bw[1]} ${bw[2]} ${bw[3]} -o ${sample}.npy.gz --missingDataAsZero --skipZeros -b $params.window -a $params.window
-    """
-}
-
-process HEATMAP_ALL_PEAKS{
-    input:
-        tuple val(sample), path(matrix)
-
-    output:
-        tuple val(sample), path("*.svg")
-    script:
-    """
-    plotHeatmap -z "" -m $matrix -o ${sample}.svg --colorMap $params.heatmapCol --heatmapHeight 14 --heatmapWidth 2 --startLabel "" --endLabel ""
-    """
-}
-
-
-
 workflow {
     //BT2_INDEX(fasta_ch)
     BT2_ALIGN(sample_ch, index_ch.collect())
+
     SAMTOOLS_VIEW(BT2_ALIGN.out.sam)
+
     SAMTOOLS_SORT(SAMTOOLS_VIEW.out.bam)
+
     SAMTOOLS_INDEX(SAMTOOLS_SORT.out.bam)
+
     SAMTOOLS_SORT.out.bam
         .combine(SAMTOOLS_INDEX.out.bai, by:0)
         .set{SAMTOOLS_SORTED_BAM_BAI}
@@ -261,7 +262,9 @@ workflow {
         .set{MACS_input_ch}
 
     MACS2(MACS_input_ch) // Biological replicates are pooled together
+
     BEDTOOLS_RM_BLK(MACS2.out.broadPeak) // genotype+treatment broadPeaks are filtered against blacklist bed file
+
     BEDTOOLS_RM_BLK.out // any treatment broadPeaks are not used to intersect with repClass
         .branch { sample_id, broadPeak ->
             DMSO: sample_id.contains('DMSO')
@@ -270,9 +273,10 @@ workflow {
                 return [sample_id, broadPeak]
         }
         .set{BEDTOOLS_RM_BLK_BRANCH}
+
     BEDTOOLS_RM_BLK_BRANCH.DMSO
-    .combine(repClass_ch)
-    .set{broadPeak_repClass_comb}
+        .combine(repClass_ch)
+        .set{broadPeak_repClass_comb}
 
     BEDTOOLS_INTERSECT(broadPeak_repClass_comb) 
 
@@ -286,10 +290,13 @@ workflow {
         }
         .groupTuple()
         .set{COMPMATRIX_ALL_PEAKS_grouped}
+
     BEDTOOLS_RM_BLK_BRANCH.DMSO
         .combine(COMPMATRIX_ALL_PEAKS_grouped)
         .set{COMPMATRIX_ALL_PEAKS_input_ch}
+        
     COMPMATRIX_ALL_PEAKS(COMPMATRIX_ALL_PEAKS_input_ch)
+
     HEATMAP_ALL_PEAKS(COMPMATRIX_ALL_PEAKS.out)
 
     BAMCOV.out 
@@ -309,6 +316,12 @@ workflow {
         }
         .groupTuple()
         .set{BW_ChIP}
-    COMPMATRIX_PEAKSatRMSK(BEDTOOLS_INTERSECT.out, BW_ChIP )
+
+    BEDTOOLS_INTERSECT.out
+        .combine(BW_ChIP)
+        .set{COMPMATRIX_PEAKSatRMSK_input_ch}
+
+    COMPMATRIX_PEAKSatRMSK(COMPMATRIX_PEAKSatRMSK_input_ch)
+
     PROFILE_PEAKSatRMSK(COMPMATRIX_PEAKSatRMSK.out) 
 }
